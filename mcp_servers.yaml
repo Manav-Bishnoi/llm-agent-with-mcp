@@ -1,0 +1,13 @@
+servers:
+  filesystem:
+    url: "http://localhost:8001"
+    description: "File system operations"
+    enabled: true
+  web_scraper:
+    url: "http://localhost:8002"
+    description: "Web scraping and content extraction"
+    enabled: true
+  database:
+    url: "http://localhost:8003"
+    description: "Database operations"
+    enabled: false
