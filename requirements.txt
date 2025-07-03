@@ -4,3 +4,4 @@ uvicorn
 pydantic
 httpx
 pyyaml
+python-json-logger

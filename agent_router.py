@@ -1,8 +1,13 @@
 from agents.fallback import fallback_command
-import importlib  # Used for dynamic import of agent modules by name
-from pydantic import create_model  # Used for dynamic parameter validation
-from fastapi import APIRouter, HTTPException, Request  # FastAPI components for API routing and error handling
-import requests  # Used for making HTTP requests to remote agents
+import importlib
+from pydantic import create_model
+from fastapi import APIRouter, HTTPException, Request
+import requests
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Create FastAPI router for agent endpoints
 router = APIRouter()
@@ -74,10 +79,10 @@ def run_agent(normalized, registry=None):
         return agent_func(**normalized["params"])
     except ModuleNotFoundError:
         # If agent module not found, return error
-        return {"result": "no agent"}
+        return {"success": False, "error": "Agent not found", "agent": normalized.get('agent', 'unknown')}
     except Exception as e:
         # Return any other error as string
-        return {"error": str(e)}
+        return {"success": False, "error": str(e), "agent": normalized.get('agent', 'unknown')}
 
 # This function validates parameters for agent commands using pydantic.
 # It dynamically builds a schema from the registry and checks the params.
@@ -96,34 +101,61 @@ def validate_params(parsed, registry):
 # This endpoint is called by the main pipeline for all agent actions.
 @router.post("/tools/{agent}/run")
 async def run_agent_api(agent: str, request: Request):
-    data = await request.json()  # Parse JSON body
-    command = data.get("command")  # Get command name
-    params = data.get("params", {})  # Get params dict
-    # Dictionary for remote agent URLs (add remote agents here)
-    REMOTE_AGENTS = {
-        # 'remote_agent_name': 'http://remote-agent-url/tools/remote_agent_name/run'
-    }
-    if agent in REMOTE_AGENTS:
-        # If agent is remote, forward request to remote API
-        try:
-            resp = requests.post(REMOTE_AGENTS[agent], json={"command": command, "params": params}, timeout=10)
-            return resp.json()
-        except Exception as e:
-            # If remote call fails, return HTTP 502
-            raise HTTPException(status_code=502, detail=f"Remote agent error: {e}")
     try:
-        # For local agents, dynamically import agent module
-        agent_module = importlib.import_module(f"agents.{agent}")
-        # Check if agent has run_command entry point
-        if hasattr(agent_module, "run_command"):
-            # Call run_command with command and params
-            return agent_module.run_command(command, params)
-        else:
-            # If agent does not support API calls, return 404
-            raise HTTPException(status_code=404, detail=f"Agent '{agent}' does not support API calls.")
-    except ModuleNotFoundError:
-        # If agent module not found, return 404
-        raise HTTPException(status_code=404, detail=f"Agent '{agent}' not found.")
+        data = await request.json()  # Parse JSON body
+        command = data.get("command")  # Get command name
+        params = data.get("params", {})  # Get params dict
+        
+        logger.info(f"Running agent: {agent}, command: {command}")
+        
+        # Dictionary for remote agent URLs (add remote agents here)
+        REMOTE_AGENTS = {
+            # 'remote_agent_name': 'http://remote-agent-url/tools/remote_agent_name/run'
+        }
+        
+        if agent in REMOTE_AGENTS:
+            # If agent is remote, forward request to remote API
+            try:
+                logger.info(f"Calling remote agent: {agent}")
+                resp = requests.post(
+                    REMOTE_AGENTS[agent], 
+                    json={"command": command, "params": params}, 
+                    timeout=30
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except requests.exceptions.ConnectionError:
+                logger.error(f"Connection failed to remote agent: {agent}")
+                raise HTTPException(status_code=503, detail=f"Remote agent '{agent}' is unavailable")
+            except requests.exceptions.Timeout:
+                logger.error(f"Timeout calling remote agent: {agent}")
+                raise HTTPException(status_code=504, detail=f"Remote agent '{agent}' timed out")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Request failed to remote agent {agent}: {e}")
+                raise HTTPException(status_code=502, detail=f"Remote agent error: {e}")
+        
+        try:
+            # For local agents
+            agent_module = importlib.import_module(f"agents.{agent}")
+            # Check if agent has run_command entry point
+            if hasattr(agent_module, "run_command"):
+                # Call run_command with command and params
+                result = agent_module.run_command(command, params)
+                logger.info(f"Agent {agent} completed successfully")
+                return result
+            else:
+                logger.error(f"Agent {agent} does not support API calls")
+                raise HTTPException(status_code=404, detail=f"Agent '{agent}' does not support API calls.")
+        except ModuleNotFoundError:
+            logger.error(f"Agent module not found: {agent}")
+            raise HTTPException(status_code=404, detail=f"Agent '{agent}' not found.")
+        except ImportError as e:
+            logger.error(f"Import error for agent {agent}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to load agent '{agent}': {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error in agent {agent}: {e}")
+            raise HTTPException(status_code=500, detail=f"Agent error: {e}")
+            
     except Exception as e:
-        # For any other error, return 500
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Request processing error: {e}")
+        raise HTTPException(status_code=400, detail=f"Request processing error: {e}")

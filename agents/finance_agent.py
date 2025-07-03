@@ -12,12 +12,30 @@ def query_ollama(prompt, model="gemma3:4b"):
     return response.json()["response"]
 
 def suggest_plan(goal):
-    prompt_str = f"""You are a financial planning assistant. Based on the user's goal, provide a financial plan.\nGoal: {goal}\nPlease provide a step-by-step plan to achieve this financial goal."""
-    output = query_ollama(prompt_str, model="gemma3:4b")
-    return {"plan": f"Financial plan: {output}"}
+    try:
+        prompt_str = f"""You are a financial planning assistant. Based on the user's goal, provide a financial plan.\nGoal: {goal}\nPlease provide a step-by-step plan to achieve this financial goal."""
+        output = query_ollama(prompt_str, model="gemma3:4b")
+        return {
+            "success": True,
+            "data": output,
+            "agent": "finance_agent",
+            "command": "suggest_plan"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "agent": "finance_agent",
+            "command": "suggest_plan"
+        }
 
 def run_command(command, params):
     if command == "suggest_plan":
-        return suggest_plan(params["goal"])
+        return suggest_plan(params.get("goal", ""))
     else:
-        return {"error": f"Unknown command: {command}"}
+        return {
+            "success": False,
+            "error": f"Unknown command: {command}",
+            "agent": "finance_agent",
+            "command": command
+        }

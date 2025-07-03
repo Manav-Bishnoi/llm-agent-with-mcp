@@ -6,6 +6,11 @@ import asyncio
 # Import enhanced pipeline and MCP configuration
 from enhanced_pipeline import EnhancedPipeline
 from mcp_config import MCPConfig
+import sqlite3
+import os
+from datetime import datetime
+import importlib
+import requests
 
 # Create FastAPI app
 app = FastAPI()
@@ -74,3 +79,98 @@ async def get_context(topic: str):
     # Get context for specific topic
     context = pipeline.context_manager.get_context(topic=topic)
     return {"context": context}
+
+@app.get("/health")
+async def health_check():
+    """
+    Comprehensive health check for all system components
+    """
+    health_status = {
+        "timestamp": datetime.now().isoformat(),
+        "overall_status": "healthy",
+        "components": {}
+    }
+    
+    # Test Ollama connection
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "gemma3:4b",
+                "prompt": "test",
+                "stream": False
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            health_status["components"]["ollama"] = {
+                "status": "healthy",
+                "response_time_ms": response.elapsed.total_seconds() * 1000
+            }
+        else:
+            health_status["components"]["ollama"] = {
+                "status": "unhealthy",
+                "error": f"HTTP {response.status_code}"
+            }
+            health_status["overall_status"] = "degraded"
+    except Exception as e:
+        health_status["components"]["ollama"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health_status["overall_status"] = "degraded"
+    
+    # Test SQLite database
+    try:
+        conn = sqlite3.connect("context.db")
+        conn.execute("SELECT 1")
+        conn.close()
+        health_status["components"]["database"] = {
+            "status": "healthy",
+            "file_exists": os.path.exists("context.db")
+        }
+    except Exception as e:
+        health_status["components"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health_status["overall_status"] = "degraded"
+    
+    # Test each agent
+    agents_to_test = ["healthcare_agent", "fitness_agent", "education_agent", "finance_agent", "law_agent", "travel_agent"]
+    
+    for agent_name in agents_to_test:
+        try:
+            # Test basic import
+            importlib.import_module(f"agents.{agent_name}")
+            health_status["components"][agent_name] = {
+                "status": "healthy",
+                "module_loaded": True
+            }
+        except Exception as e:
+            health_status["components"][agent_name] = {
+                "status": "unhealthy",
+                "error": str(e),
+                "module_loaded": False
+            }
+            health_status["overall_status"] = "degraded"
+    
+    # Test MCP servers if any are configured
+    try:
+        for name, client in pipeline.mcp_servers.items():
+            health_status["components"][f"mcp_{name}"] = {
+                "status": "healthy",
+                "tools_count": len(client.tools)
+            }
+    except Exception as e:
+        health_status["components"]["mcp_servers"] = {
+            "status": "unknown",
+            "error": "MCP server check failed"
+        }
+    
+    # Set overall status based on critical components
+    critical_components = ["ollama", "database"]
+    if any(health_status["components"].get(comp, {}).get("status") == "unhealthy" for comp in critical_components):
+        health_status["overall_status"] = "unhealthy"
+    
+    return health_status
