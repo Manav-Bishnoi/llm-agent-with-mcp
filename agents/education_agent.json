@@ -1,0 +1,12 @@
+{
+  "name": "education_agent",
+  "description": "Study planning and learning suggestions.",
+  "functions": {
+    "suggest_plan": {
+      "description": "Suggests a study plan for a subject.",
+      "params": {
+        "subject": "string"
+      }
+    }
+  }
+}

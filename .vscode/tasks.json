@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "Test Flask Endpoints",
+			"command": "python -c \"import requests; print(requests.post('http://127.0.0.1:5000/query', json={'query':'test'}).json()); print(requests.post('http://127.0.0.1:5000/tools/education_agent/run', json={'command':'test_command','params':{}}).json()); print(requests.get('http://127.0.0.1:5000/').status_code); print(requests.get('http://127.0.0.1:5000/app.js').status_code)\"",
+			"group": "test",
+			"isBackground": false
+		}
+	]
+}

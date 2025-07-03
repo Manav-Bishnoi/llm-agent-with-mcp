@@ -1,0 +1,12 @@
+{
+  "name": "healthcare_agent",
+  "description": "Healthcare advice and symptom analysis.",
+  "functions": {
+    "suggest_advice": {
+      "description": "Suggests healthcare advice for a symptom.",
+      "params": {
+        "symptom": "string"
+      }
+    }
+  }
+}

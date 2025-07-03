@@ -1,0 +1,12 @@
+{
+  "name": "finance_agent",
+  "description": "Financial planning and advice.",
+  "functions": {
+    "suggest_plan": {
+      "description": "Suggests a financial plan for a goal.",
+      "params": {
+        "goal": "string"
+      }
+    }
+  }
+}

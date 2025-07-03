@@ -1,0 +1,12 @@
+{
+  "name": "fitness_agent",
+  "description": "Fitness planning and exercise suggestions.",
+  "functions": {
+    "suggest_plan": {
+      "description": "Suggests a fitness plan based on goal.",
+      "params": {
+        "goal": "string"
+      }
+    }
+  }
+}

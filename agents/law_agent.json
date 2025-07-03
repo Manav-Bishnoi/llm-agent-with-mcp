@@ -1,0 +1,12 @@
+{
+  "name": "law_agent",
+  "description": "Legal information and general law advice.",
+  "functions": {
+    "suggest_advice": {
+      "description": "Suggests legal advice for a question.",
+      "params": {
+        "question": "string"
+      }
+    }
+  }
+}

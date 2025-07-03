@@ -1,0 +1,12 @@
+{
+  "name": "travel_agent",
+  "description": "Travel planning and itinerary suggestions.",
+  "functions": {
+    "suggest_itinerary": {
+      "description": "Suggests a travel itinerary for a destination.",
+      "params": {
+        "destination": "string"
+      }
+    }
+  }
+}
