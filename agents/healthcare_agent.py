@@ -16,32 +16,14 @@ def query_ollama(prompt, model="gemma3:4b"):
 # Suggest a healthcare plan based on a symptom
 # Returns a dictionary with the advice string
 def suggest_advice(symptom):
-    try:
-        prompt_str = f"""You are a healthcare assistant. Based on the user's symptom, provide advice.\nSymptom: {symptom}\nPlease provide a possible cause and recommended next steps."""
-        output = query_ollama(prompt_str, model="gemma3:4b")
-        return {
-            "success": True,
-            "data": output,
-            "agent": "healthcare_agent",
-            "command": "suggest_advice"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "agent": "healthcare_agent",
-            "command": "suggest_advice"
-        }
+    prompt_str = f"""You are a healthcare assistant. Based on the user's symptom, provide advice.\nSymptom: {symptom}\nPlease provide a possible cause and recommended next steps."""
+    output = query_ollama(prompt_str, model="gemma3:4b")
+    return {"advice": f"Healthcare advice: {output}"}
 
 # Standard API entry point for this agent
 # Handles all API calls for this agent
 def run_command(command, params):
     if command == "suggest_advice":
-        return suggest_advice(params.get("symptom", ""))
+        return suggest_advice(params["symptom"])
     else:
-        return {
-            "success": False,
-            "error": f"Unknown command: {command}",
-            "agent": "healthcare_agent",
-            "command": command
-        }
+        return {"error": f"Unknown command: {command}"}
