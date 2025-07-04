@@ -12,16 +12,49 @@ def query_ollama(prompt, model="gemma3:4b"):
     return response.json()["response"]
 
 
-def suggest_plan(goal):
-    prompt_str = f"""You are an AI fitness assistant. Based on the user's query answer.
-{goal}
-Please provide a detailed workout plan to help achieve the goal of {goal}."""
-    output = query_ollama(prompt_str, model="gemma3:4b")
-    return {"plan": f"Here’s a workout plan to help you achieve: {output}."}
+def query_ollama_with_context(prompt, context="", model="gemma3:4b"):
+    full_prompt = f"""
+Previous conversation context:
+{context}
+
+Current request:
+{prompt}
+
+Please provide a response that considers the conversation history above.
+"""
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={
+            "model": model,
+            "prompt": full_prompt,
+            "stream": False
+        }
+    )
+    return response.json()["response"]
+
+
+def suggest_plan(goal, context=""):
+    prompt_str = f"""You are an AI fitness assistant. Based on the user's goal and conversation history, provide a workout plan.\n\nContext: {context}\nCurrent Goal: {goal}\nPlease provide a detailed workout plan to help achieve the goal, considering any previous discussions."""
+    output = query_ollama_with_context(prompt_str, context, model="gemma3:4b")
+    return {
+        "success": True,
+        "data": output,
+        "agent": "fitness_agent",
+        "command": "suggest_plan"
+    }
+
+
+def run_command_with_context(command, params, context=""):
+    if command == "suggest_plan":
+        return suggest_plan(params.get("goal", ""), context)
+    else:
+        return {
+            "success": False,
+            "error": f"Unknown command: {command}",
+            "agent": "fitness_agent",
+            "command": command
+        }
 
 
 def run_command(command, params):
-    if command == "suggest_plan":
-        return suggest_plan(params["goal"])
-    else:
-        return {"error": f"Unknown command: {command}"}
+    return run_command_with_context(command, params, "")

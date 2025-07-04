@@ -1,11 +1,20 @@
-from agents.fallback import fallback_command
+from agents.fallback import fallback_command, fallback_agent_execution
 import importlib  # Used for dynamic import of agent modules by name
 from pydantic import create_model  # Used for dynamic parameter validation
 from fastapi import APIRouter, HTTPException, Request  # FastAPI components for API routing and error handling
 import requests  # Used for making HTTP requests to remote agents
+import logging
+from context_manager import ContextManager
+import traceback
 
 # Create FastAPI router for agent endpoints
 router = APIRouter()
+logger = logging.getLogger("agent_router")
+
+class AgentExecutionError(Exception):
+    pass
+class AgentTimeoutError(Exception):
+    pass
 
 # This function normalizes the agent call structure from LLM or user input.
 # It ensures the result is a dict with 'agent', 'command', and 'params' keys.
@@ -92,38 +101,106 @@ def validate_params(parsed, registry):
     Schema = create_model("Params", **param_defs)  # Create pydantic model
     Schema(**parsed["params"])  # Validate params
 
+# This function executes the agent with context, handling errors and fallback logic.
+def run_agent_with_context(normalized, context_manager, conversation_id=None, topic=None):
+    try:
+        context = context_manager.get_filtered_context(
+            topic=topic,
+            conversation_id=conversation_id,
+            exclude_main_model=True
+        )
+        agent_module = importlib.import_module(f"agents.{normalized['agent']}")
+        if hasattr(agent_module, "run_command_with_context"):
+            return agent_module.run_command_with_context(
+                normalized["command"],
+                normalized["params"],
+                context
+            )
+        else:
+            agent_func = getattr(agent_module, normalized["command"])
+            return agent_func(**normalized["params"])
+    except Exception as e:
+        return {"success": False, "error": str(e), "agent": normalized.get('agent', 'unknown')}
+
+# This function runs the agent with error handling and fallback to ensure robustness.
+def run_agent_with_error_handling(normalized, context_manager, conversation_id=None, topic=None):
+    agent_name = normalized.get('agent', 'unknown')
+    command = normalized.get('command', 'unknown')
+    try:
+        context = context_manager.get_filtered_context(
+            topic=topic,
+            conversation_id=conversation_id,
+            exclude_main_model=True
+        )
+        try:
+            agent_module = importlib.import_module(f"agents.{agent_name}")
+        except ModuleNotFoundError:
+            logger.error(f"Agent module not found: {agent_name}")
+            return fallback_agent_execution(
+                agent_name, command, normalized.get('params', {}),
+                context_manager.get_last_user_query(), context
+            )
+        try:
+            if hasattr(agent_module, "run_command_with_context"):
+                result = agent_module.run_command_with_context(
+                    command,
+                    normalized["params"],
+                    context
+                )
+            else:
+                result = agent_module.run_command(command, normalized["params"])
+            if not isinstance(result, dict):
+                raise AgentExecutionError(f"Agent returned invalid result type: {type(result)}")
+            if not result.get('success', False):
+                logger.warning(f"Agent {agent_name} reported failure: {result.get('error', 'Unknown error')}")
+                return fallback_agent_execution(
+                    agent_name, command, normalized.get('params', {}),
+                    context_manager.get_last_user_query(), context
+                )
+            return result
+        except Exception as e:
+            logger.error(f"Agent execution error for {agent_name}: {str(e)}")
+            logger.error(traceback.format_exc())
+            return fallback_agent_execution(
+                agent_name, command, normalized.get('params', {}),
+                context_manager.get_last_user_query(), context
+            )
+    except Exception as e:
+        logger.error(f"Critical error in agent execution: {str(e)}")
+        logger.error(traceback.format_exc())
+        return {
+            "success": False,
+            "error": f"Critical system error: {str(e)}",
+            "agent": agent_name,
+            "command": command,
+            "fallback_attempted": True
+        }
+
 # API endpoint to run agent commands (local or remote)
 # This endpoint is called by the main pipeline for all agent actions.
 @router.post("/tools/{agent}/run")
 async def run_agent_api(agent: str, request: Request):
-    data = await request.json()  # Parse JSON body
-    command = data.get("command")  # Get command name
-    params = data.get("params", {})  # Get params dict
-    # Dictionary for remote agent URLs (add remote agents here)
-    REMOTE_AGENTS = {
-        # 'remote_agent_name': 'http://remote-agent-url/tools/remote_agent_name/run'
-    }
-    if agent in REMOTE_AGENTS:
-        # If agent is remote, forward request to remote API
-        try:
-            resp = requests.post(REMOTE_AGENTS[agent], json={"command": command, "params": params}, timeout=10)
-            return resp.json()
-        except Exception as e:
-            # If remote call fails, return HTTP 502
-            raise HTTPException(status_code=502, detail=f"Remote agent error: {e}")
     try:
-        # For local agents, dynamically import agent module
-        agent_module = importlib.import_module(f"agents.{agent}")
-        # Check if agent has run_command entry point
-        if hasattr(agent_module, "run_command"):
-            # Call run_command with command and params
-            return agent_module.run_command(command, params)
-        else:
-            # If agent does not support API calls, return 404
-            raise HTTPException(status_code=404, detail=f"Agent '{agent}' does not support API calls.")
-    except ModuleNotFoundError:
-        # If agent module not found, return 404
-        raise HTTPException(status_code=404, detail=f"Agent '{agent}' not found.")
+        data = await request.json()  # Parse JSON body
+        command = data.get("command")  # Get command name
+        params = data.get("params", {})  # Get params dict
+        conversation_id = data.get("conversation_id")  # Get conversation ID
+        topic = data.get("topic")  # Get topic
+        context = data.get("context", "")  # Get context
+        context_manager = ContextManager()  # Initialize context manager
+        try:
+            agent_module = importlib.import_module(f"agents.{agent}")
+            if hasattr(agent_module, "run_command_with_context"):
+                # If agent supports context, run with context
+                result = agent_module.run_command_with_context(command, params, context)
+            else:
+                # Otherwise, run normal command
+                result = agent_module.run_command(command, params)
+            logger.info(f"Agent {agent} completed successfully")
+            return result
+        except Exception as e:
+            logger.error(f"Agent execution error: {e}")
+            raise HTTPException(status_code=500, detail=f"Agent error: {e}")
     except Exception as e:
-        # For any other error, return 500
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Request processing error: {e}")
+        raise HTTPException(status_code=400, detail=f"Request processing error: {e}")
