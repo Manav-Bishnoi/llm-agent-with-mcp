@@ -4,10 +4,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
-import asyncio
-# Import enhanced pipeline and MCP configuration
-from enhanced_pipeline import EnhancedPipeline
-from mcp_config import MCPConfig
 import sqlite3
 import os
 from datetime import datetime
@@ -16,6 +12,16 @@ import requests
 from main import main as main_func
 import logging
 from fastapi.middleware.cors import CORSMiddleware
+from backend.core.context_manager import ContextManager
+from backend.core.enhanced_pipeline import EnhancedPipeline
+from backend.core.prompt_builder import build_prompt_from_registry
+from backend.core.tool_registry import load_tool_registry
+from backend.utils.llm_utils import query_ollama
+from backend.utils.response_utils import parse_and_validate_response
+from backend.config.mcp_config import MCPConfig
+from backend.utils.mcp_client import MCPClient
+import uuid
+import json
 
 # Create FastAPI app
 app = FastAPI()
@@ -227,29 +233,34 @@ async def run_agent_tool(agent: str, request: dict = Body(...)):
     try:
         command = request.get("command", "")
         params = request.get("params", {})
-        
+        conversation_id = request.get("conversation_id") or str(uuid.uuid4())
+        topic = request.get("topic") or "general"
+        cm = ContextManager()
+        # Save user input to context
+        cm.save_context(topic=topic, conversation_id=conversation_id, user_input=str(params), response_type="user")
         # Import and run the actual agent
         import importlib
         try:
             agent_module = importlib.import_module(f"agents.{agent}")
-            
             # Check if agent has the required function
             if hasattr(agent_module, command):
                 agent_func = getattr(agent_module, command)
                 result = agent_func(**params)
+                # Save agent response to context
+                cm.save_context(topic=topic, conversation_id=conversation_id, agent_response=json.dumps(result), response_type="agent")
                 return {"success": True, "data": result, "agent": agent, "command": command}
             elif hasattr(agent_module, "run_command"):
                 result = agent_module.run_command(command, params)
+                # Save agent response to context
+                cm.save_context(topic=topic, conversation_id=conversation_id, agent_response=json.dumps(result), response_type="agent")
                 return {"success": True, "data": result, "agent": agent, "command": command}
             else:
                 return {"success": False, "error": f"Command '{command}' not found in agent '{agent}'"}
-                
         except ImportError:
             return {"success": False, "error": f"Agent '{agent}' not found"}
         except Exception as e:
             logger.error(f"Agent execution error: {e}")
             return {"success": False, "error": f"Agent execution failed: {str(e)}"}
-            
     except Exception as e:
         logger.error(f"Request processing error: {e}")
         return {"success": False, "error": f"Request processing error: {str(e)}"}

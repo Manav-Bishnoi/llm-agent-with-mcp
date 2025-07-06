@@ -1,4 +1,5 @@
 import requests  # Used for HTTP requests to Ollama and as agent API client
+from context_manager import ContextManager
 
 # Query Ollama LLM with a prompt and model
 # Returns the generated response as a string
@@ -126,10 +127,13 @@ If you have specific concerns about your health, please provide more details abo
 
 # Suggest a healthcare plan based on a symptom
 # Returns a dictionary with the advice string
-def suggest_advice(symptom, context=""):
-    # Try to get response from Ollama first
-    prompt_str = f"""You are a healthcare assistant. Based on the user's symptom and conversation history, provide advice.\n\nContext: {context}\nCurrent Symptom: {symptom}\nPlease provide a possible cause and recommended next steps, considering any previous health discussions."""
-    output = query_ollama_with_context(prompt_str, context, model="gemma3:4b")
+def suggest_advice(symptom, context_list=None):
+    if context_list is None:
+        context_list = []
+    cm = ContextManager()
+    context_str = cm.format_context_for_agent(context_list)
+    prompt_str = f"You are a healthcare assistant. Based on the user's symptom and conversation history, provide advice.\n\n{context_str}\nCurrent Symptom: {symptom}\nPlease provide a general answer and suggest next steps, considering any previous discussions."
+    output = query_ollama(prompt_str, model="gemma3:4b")
     
     # If Ollama fails, use fallback response
     if output is None:
@@ -144,9 +148,11 @@ def suggest_advice(symptom, context=""):
 
 # Standard API entry point for this agent
 # Handles all API calls for this agent
-def run_command_with_context(command, params, context=""):
+def run_command_with_context(command, params, context_list=None):
+    if context_list is None:
+        context_list = []
     if command == "suggest_advice":
-        return suggest_advice(params.get("symptom", ""), context)
+        return suggest_advice(params.get("symptom", ""), context_list)
     else:
         return {
             "success": False,
@@ -156,4 +162,4 @@ def run_command_with_context(command, params, context=""):
         }
 
 def run_command(command, params):
-    return run_command_with_context(command, params, "")
+    return run_command_with_context(command, params, [])

@@ -20,7 +20,7 @@ Previous conversation context:
 Current request:
 {prompt}
 
-Please provide a response that considers the conversation history above.
+Please provide a helpful, general-purpose response considering the conversation history above.
 """
     response = requests.post(
         "http://localhost:11434/api/generate",
@@ -32,32 +32,32 @@ Please provide a response that considers the conversation history above.
     )
     return response.json()["response"]
 
-def suggest_plan(subject, context_list=None):
+def answer(query, context_list=None):
     if context_list is None:
         context_list = []
     cm = ContextManager()
     context_str = cm.format_context_for_agent(context_list)
-    prompt_str = f"You are an education assistant. Based on the user's subject and conversation history, provide a study plan.\n\n{context_str}\nCurrent Subject: {subject}\nPlease provide a detailed study plan for this subject, considering any previous discussions."
+    prompt_str = f"You are a helpful general-purpose assistant.\n\n{context_str}\nUser Query: {query}\nPlease provide a helpful, relevant answer."
     output = query_ollama(prompt_str, model="gemma3:4b")
     return {
         "success": True,
         "data": output,
-        "agent": "education_agent",
-        "command": "suggest_plan"
+        "agent": "general_agent",
+        "command": "answer"
     }
 
 def run_command_with_context(command, params, context_list=None):
     if context_list is None:
         context_list = []
-    if command == "suggest_plan":
-        return suggest_plan(params.get("subject", ""), context_list)
+    if command == "answer":
+        return answer(params.get("query", ""), context_list)
     else:
         return {
             "success": False,
             "error": f"Unknown command: {command}",
-            "agent": "education_agent",
+            "agent": "general_agent",
             "command": command
         }
 
 def run_command(command, params):
-    return run_command_with_context(command, params, [])
+    return run_command_with_context(command, params, []) 

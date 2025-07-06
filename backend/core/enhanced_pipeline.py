@@ -1,7 +1,10 @@
-from context_manager import ContextManager
-from agent_router import run_agent_with_error_handling, normalize_agent_call
-from response_utils import parse_and_validate_response
-from llm_utils import query_ollama
+from backend.core.context_manager import ContextManager
+from backend.api.agent_router import run_agent_with_error_handling, normalize_agent_call
+from backend.utils.response_utils import parse_and_validate_response
+from backend.utils.llm_utils import query_ollama
+from backend.config.mcp_config import MCPConfig
+from backend.utils.mcp_client import MCPClient
+from backend.core.tool_registry import load_tool_registry
 import uuid
 from typing import Optional, Dict, Any
 
@@ -15,7 +18,6 @@ class EnhancedPipeline:
     async def add_mcp_server(self, name: str, url: str):
         """Add MCP server to the pipeline"""
         try:
-            from mcp_client import MCPClient
             client = MCPClient(url)
             await client.connect()
             self.mcp_servers[name] = client
@@ -41,12 +43,11 @@ class EnhancedPipeline:
             exclude_main_model=True
         )
         # Build routing prompt
-        routing_prompt = self.build_routing_prompt(user_query, context)
-        # Get LLM response for routing only
-        routing_response = query_ollama(routing_prompt)
-        # Parse routing response
-        from tool_registry import load_tool_registry
         registry = load_tool_registry()
+        prompt = self.build_routing_prompt(user_query, context)
+        # Get LLM response for routing only
+        routing_response = query_ollama(prompt)
+        # Parse routing response
         parsed = parse_and_validate_response(routing_response, registry, user_query)
         if not parsed:
             from agents.fallback import fallback_agent_execution
@@ -72,7 +73,6 @@ class EnhancedPipeline:
         return result
 
     def build_routing_prompt(self, query: str, context: str) -> str:
-        from tool_registry import load_tool_registry
         registry = load_tool_registry()
         prompt = f"""You are a routing assistant. Based on the user query and context, decide which agent to call.\n\nContext: {context}\n\nAvailable agents:\n"""
         for name, agent in registry.items():

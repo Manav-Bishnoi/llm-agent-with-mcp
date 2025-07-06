@@ -45,7 +45,7 @@ function addMessage(msg, sender) {
 
 // Send message to backend using /main_query endpoint (always auto-select)
 async function sendMessage(text) {
-    addMessage({ text }, 'user');
+    addMessage(text, 'user');
     setStatus('Sending message...');
     try {
         const requestBody = { query: text };

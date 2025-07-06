@@ -87,8 +87,8 @@ class ContextManager:
         conn.close()
 
     def get_filtered_context(self, topic: Optional[str] = None, conversation_id: Optional[str] = None, 
-                           exclude_main_model: bool = True) -> str:
-        """Get context formatted for agents, excluding main model outputs"""
+                           exclude_main_model: bool = True) -> list:
+        """Get context as a list of dicts, excluding main model outputs"""
         conn = sqlite3.connect(self.db_path)
         query = """
             SELECT user_input, agent_response, timestamp, response_type 
@@ -107,15 +107,26 @@ class ContextManager:
         query += " ORDER BY timestamp DESC LIMIT 10"
         results = conn.execute(query, params).fetchall()
         conn.close()
-        # Format context for agents
-        context_text = "Previous conversation context:\n"
+        context_list = []
         for row in reversed(results):  # Reverse to show chronological order
             user_input, agent_response, timestamp, response_type = row
-            if user_input:
-                context_text += f"User: {user_input}\n"
-            if agent_response:
-                context_text += f"Agent: {agent_response}\n"
-            context_text += f"Time: {timestamp}\n---\n"
+            context_list.append({
+                'user_input': user_input,
+                'agent_response': agent_response,
+                'timestamp': timestamp,
+                'response_type': response_type
+            })
+        return context_list
+
+    def format_context_for_agent(self, context_list: list) -> str:
+        """Format context list as a string for agent prompts"""
+        context_text = "Previous conversation context:\n"
+        for entry in context_list:
+            if entry['user_input']:
+                context_text += f"User: {entry['user_input']}\n"
+            if entry['agent_response']:
+                context_text += f"Agent: {entry['agent_response']}\n"
+            context_text += f"Time: {entry['timestamp']}\n---\n"
         return context_text
 
     def get_last_user_query(self, topic: Optional[str] = None, conversation_id: Optional[str] = None) -> str:

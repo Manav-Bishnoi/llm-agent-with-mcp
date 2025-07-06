@@ -1,0 +1,12 @@
+{
+  "name": "general_agent",
+  "description": "Handles all general-purpose queries. Specialized agents are only used when needed.",
+  "functions": {
+    "answer": {
+      "description": "Answers general user queries.",
+      "params": {
+        "query": "string"
+      }
+    }
+  }
+} 

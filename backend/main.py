@@ -1,11 +1,13 @@
 # Import required modules for registry, LLM, and agent routing
-from tool_registry import load_tool_registry  # Loads agent/tool registry from JSON
-from llm_utils import query_ollama  # Function to query the LLM
-from agent_router import normalize_agent_call  # Normalizes agent call structure
-from prompt_builder import build_prompt_from_registry  # Builds prompt for LLM
-from response_utils import parse_and_validate_response  # Parses and validates LLM response
+from backend.core.tool_registry import load_tool_registry  # Loads agent/tool registry from JSON
+from backend.utils.llm_utils import query_ollama  # Function to query the LLM
+from backend.api.agent_router import normalize_agent_call  # Normalizes agent call structure
+from backend.core.prompt_builder import build_prompt_from_registry  # Builds prompt for LLM
+from backend.utils.response_utils import parse_and_validate_response  # Parses and validates LLM response
 import json  # For pretty-printing output
 import requests  # For making HTTP API calls to agents
+from backend.core.context_manager import ContextManager
+import uuid
 
 # Get user query from input (for CLI mode)
 def get_user_query():
@@ -59,10 +61,15 @@ def run_agent_full(user_query, agent=None, api_url="http://localhost:8000"):
         return f"Error: {e}"
 
 # CLI main loop for testing and debugging
-def main(user_query=None):
+def main(user_query=None, conversation_id=None, topic="general"):
     registry = load_tool_registry()
+    if conversation_id is None:
+        conversation_id = str(uuid.uuid4())
+    cm = ContextManager()
     if user_query is None:
         user_query = get_user_query()
+    # Save user query to context
+    cm.save_context(topic=topic, conversation_id=conversation_id, user_input=user_query, response_type="user")
     prompt = build_prompt_from_registry(registry, user_query)
     response = get_llm_response(prompt)
     parsed = parse_and_validate_response(response, registry, user_query)
@@ -72,6 +79,9 @@ def main(user_query=None):
     try:
         # Call agent directly instead of through API to avoid circular calls
         result = run_agent_directly(normalized)
+        # Save agent response to context
+        if result and result.get('success'):
+            cm.save_context(topic=topic, conversation_id=conversation_id, agent_response=json.dumps(result.get('data', str(result))), response_type="agent")
         return result
     except Exception as e:
         return {'error': str(e)}
@@ -104,10 +114,12 @@ def run_agent_directly(normalized):
         return {"success": False, "error": f"Agent execution failed: {str(e)}"}
 
 if __name__ == "__main__":
+    conversation_id = str(uuid.uuid4())
+    topic = "general"
     while True:
         try:
             user_query = get_user_query()
-            result = main(user_query)
+            result = main(user_query, conversation_id=conversation_id, topic=topic)
             print_agent_output(result)
         except KeyboardInterrupt:
             print("\nExiting...")

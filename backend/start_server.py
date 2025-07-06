@@ -7,7 +7,7 @@ Initializes the database and starts the FastAPI server
 import uvicorn
 import os
 import sys
-from context_manager import ContextManager
+from backend.core.context_manager import ContextManager
 
 def init_database():
     """Initialize the database and create necessary tables"""

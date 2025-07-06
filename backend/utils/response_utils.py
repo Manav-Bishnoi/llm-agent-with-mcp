@@ -1,9 +1,9 @@
 def parse_and_validate_response(response, registry, user_query):
-    from llm_utils import extract_json
+    from backend.utils.llm_utils import extract_json
     try:
         parsed = extract_json(response)
         print("Parsed JSON:", parsed)
-        from tool_registry import validate_params
+        from backend.core.tool_registry import validate_params
         try:
             validate_params(registry, parsed)
         except ValueError as e:

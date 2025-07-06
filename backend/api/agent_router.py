@@ -1,10 +1,10 @@
 from agents.fallback import fallback_command, fallback_agent_execution
 import importlib  # Used for dynamic import of agent modules by name
-from pydantic import create_model  # Used for dynamic parameter validation
+from pydantic import create_model, BaseModel, ValidationError  # Used for dynamic parameter validation
 from fastapi import APIRouter, HTTPException, Request  # FastAPI components for API routing and error handling
 import requests  # Used for making HTTP requests to remote agents
 import logging
-from context_manager import ContextManager
+from backend.core.context_manager import ContextManager
 import traceback
 
 # Create FastAPI router for agent endpoints
@@ -94,21 +94,22 @@ def validate_params(parsed, registry):
     agent = registry[parsed["agent"]]  # Get agent info from registry
     func = agent["functions"][parsed["command"]]  # Get function info
     # Build param definitions for pydantic
-    param_defs = {
-        key: (eval(spec["type"]), ...)
-        for key, spec in func["params"].items()
-    }
-    Schema = create_model("Params", **param_defs)  # Create pydantic model
-    Schema(**parsed["params"])  # Validate params
+    fields = {key: (str, ...) for key in func["params"].keys()}
+    try:
+        Params = type('Params', (BaseModel,), {k: (str, ...) for k in func["params"].keys()})
+        Params(**parsed["params"])
+    except Exception as e:
+        raise ValueError(f"Parameter validation failed: {e}")
 
 # This function executes the agent with context, handling errors and fallback logic.
 def run_agent_with_context(normalized, context_manager, conversation_id=None, topic=None):
     try:
-        context = context_manager.get_filtered_context(
+        context_list = context_manager.get_filtered_context(
             topic=topic,
             conversation_id=conversation_id,
             exclude_main_model=True
         )
+        context = context_manager.format_context_for_agent(context_list)
         agent_module = importlib.import_module(f"agents.{normalized['agent']}")
         if hasattr(agent_module, "run_command_with_context"):
             return agent_module.run_command_with_context(
@@ -127,11 +128,12 @@ def run_agent_with_error_handling(normalized, context_manager, conversation_id=N
     agent_name = normalized.get('agent', 'unknown')
     command = normalized.get('command', 'unknown')
     try:
-        context = context_manager.get_filtered_context(
+        context_list = context_manager.get_filtered_context(
             topic=topic,
             conversation_id=conversation_id,
             exclude_main_model=True
         )
+        context = context_manager.format_context_for_agent(context_list)
         try:
             agent_module = importlib.import_module(f"agents.{agent_name}")
         except ModuleNotFoundError:
