@@ -10,11 +10,6 @@ const messageList = document.getElementById('message-list');
 const inputForm = document.getElementById('input-form');
 const userInput = document.getElementById('user-input');
 const statusBar = document.getElementById('status-bar');
-const agentSelect = document.getElementById('agent-select');
-
-// State
-let conversation = [];
-let selectedAgent = null;
 
 // Set status bar
 function setStatus(msg) {
@@ -30,7 +25,6 @@ function addMessage(msg, sender) {
     if (typeof msg === 'string') {
         displayText = msg;
     } else if (msg && typeof msg === 'object') {
-        // If the response is wrapped (like {success, data, ...})
         if (msg.data && typeof msg.data === 'object' && msg.data.data) {
             displayText = msg.data.data;
         } else if (msg.data && typeof msg.data === 'string') {
@@ -49,72 +43,22 @@ function addMessage(msg, sender) {
     messageList.scrollTop = messageList.scrollHeight;
 }
 
-// Load available agents
-async function loadAgents() {
-    try {
-        const response = await fetch(`${API_BASE}/health`);
-        const health = await response.json();
-        
-        // Clear existing options
-        agentSelect.innerHTML = '<option value="">Auto-select agent</option>';
-        
-        // Add agent options based on health check
-        if (health.components) {
-            Object.keys(health.components).forEach(agentName => {
-                if (agentName.endsWith('_agent') && health.components[agentName].status === 'healthy') {
-                    const option = document.createElement('option');
-                    option.value = agentName;
-                    option.textContent = agentName.replace('_agent', ' ').replace(/\b\w/g, l => l.toUpperCase());
-                    agentSelect.appendChild(option);
-                }
-            });
-        }
-    } catch (error) {
-        console.error('Failed to load agents:', error);
-    }
-}
-
-// Send message to backend using /main_query endpoint
+// Send message to backend using /main_query endpoint (always auto-select)
 async function sendMessage(text) {
     addMessage({ text }, 'user');
     setStatus('Sending message...');
-    
     try {
         const requestBody = { query: text };
-        
-        // If specific agent is selected, use the enhanced pipeline
-        if (selectedAgent) {
-            const response = await fetch(`${API_BASE}/ask`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    user_query: text,
-                    topic: selectedAgent
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            addMessage(data, 'agent');
-        } else {
-            // Use main_query endpoint for auto-routing
-            const response = await fetch(`${API_BASE}/main_query`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            addMessage(data, 'agent');
+        const response = await fetch(`${API_BASE}/main_query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+        const data = await response.json();
+        addMessage(data, 'agent');
         setStatus('Ready');
     } catch (error) {
         console.error('API error:', error);
@@ -123,16 +67,6 @@ async function sendMessage(text) {
         setStatus('Error occurred');
     }
 }
-
-// Handle agent selection
-agentSelect.addEventListener('change', (e) => {
-    selectedAgent = e.target.value || null;
-    if (selectedAgent) {
-        setStatus(`Selected agent: ${selectedAgent}`);
-    } else {
-        setStatus('Auto-selecting agent');
-    }
-});
 
 // Handle form submit
 inputForm.onsubmit = (e) => {
@@ -145,10 +79,8 @@ inputForm.onsubmit = (e) => {
 
 // Initialize on page load
 window.onload = async () => {
-    setStatus('Loading agents...');
-    await loadAgents();
     setStatus('Ready');
 };
 
 // Export for testing
-window._chat = { sendMessage, addMessage, setStatus, loadAgents };
+window._chat = { sendMessage, addMessage, setStatus };
