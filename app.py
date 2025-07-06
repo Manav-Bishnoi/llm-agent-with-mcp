@@ -1,5 +1,7 @@
 # Import FastAPI and pydantic for API and data validation
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Body
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
@@ -11,12 +13,37 @@ import os
 from datetime import datetime
 import importlib
 import requests
+from main import main as main_func
+import logging
+from fastapi.middleware.cors import CORSMiddleware
 
 # Create FastAPI app
 app = FastAPI()
+
+# Mount static files for frontend
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+
 # Initialize pipeline and MCP configuration
 pipeline = EnhancedPipeline()
 mcp_config = MCPConfig()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Configure CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Root route redirects to frontend
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/frontend/")
 
 # Define request schema for /ask endpoint
 class EnhancedQueryRequest(BaseModel):
@@ -63,7 +90,7 @@ async def add_mcp_server(req: MCPServerRequest):
     # Add new MCP server dynamically
     try:
         await pipeline.add_mcp_server(req.name, req.url)
-        mcp_config.add_server(req.name, req.url, req.description)
+        mcp_config.add_server(req.name, req.url, req.description or "")
         logger.info(f"MCP server {req.name} added successfully")
         return {"message": f"MCP server {req.name} added successfully"}
     except Exception as e:
@@ -177,3 +204,52 @@ async def health_check():
         health_status["overall_status"] = "unhealthy"
     
     return health_status
+
+# Endpoint for frontend to call main(user_query)
+@app.post("/main_query")
+async def main_query(request: Request):
+    data = await request.json()
+    user_query = data.get("query", "")
+    try:
+        result = main_func(user_query)
+        # Ensure result is JSON serializable
+        if not isinstance(result, (dict, list, str, int, float, bool, type(None))):
+            result = str(result)
+        logger.info(f"/main_query result: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"/main_query error: {e}")
+        return {"error": str(e)}
+
+@app.post("/tools/{agent}/run")
+async def run_agent_tool(agent: str, request: dict = Body(...)):
+    """Run agent tool with proper error handling and agent execution"""
+    try:
+        command = request.get("command", "")
+        params = request.get("params", {})
+        
+        # Import and run the actual agent
+        import importlib
+        try:
+            agent_module = importlib.import_module(f"agents.{agent}")
+            
+            # Check if agent has the required function
+            if hasattr(agent_module, command):
+                agent_func = getattr(agent_module, command)
+                result = agent_func(**params)
+                return {"success": True, "data": result, "agent": agent, "command": command}
+            elif hasattr(agent_module, "run_command"):
+                result = agent_module.run_command(command, params)
+                return {"success": True, "data": result, "agent": agent, "command": command}
+            else:
+                return {"success": False, "error": f"Command '{command}' not found in agent '{agent}'"}
+                
+        except ImportError:
+            return {"success": False, "error": f"Agent '{agent}' not found"}
+        except Exception as e:
+            logger.error(f"Agent execution error: {e}")
+            return {"success": False, "error": f"Agent execution failed: {str(e)}"}
+            
+    except Exception as e:
+        logger.error(f"Request processing error: {e}")
+        return {"success": False, "error": f"Request processing error: {str(e)}"}

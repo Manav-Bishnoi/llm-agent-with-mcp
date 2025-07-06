@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, LargeBinary
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import sqlite3
 
 Base = declarative_base()
@@ -20,20 +20,35 @@ class ContextManager:
         self.engine = create_engine(db_url, pool_pre_ping=True, connect_args={"check_same_thread": False})
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+        self.db_path = 'context.db'  # SQLite file path for direct access
 
-    def save_context(self, topic: str, conversation_id: str, content: str, embedding: bytes = None):
-        session = self.Session()
-        try:
-            ctx = Context(topic=topic, conversation_id=conversation_id, content=content, embedding=embedding)
-            session.add(ctx)
-            session.commit()
-        except Exception as e:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+    def save_context(self, topic: str, conversation_id: str, user_input: Optional[str] = None, 
+                    agent_response: Optional[str] = None, response_type: str = "user", 
+                    content: Optional[str] = None, embedding: Optional[bytes] = None):
+        """Save context with proper filtering - supports both SQLAlchemy and direct SQLite"""
+        if content is not None:
+            # Use SQLAlchemy for the original interface
+            session = self.Session()
+            try:
+                ctx = Context(topic=topic, conversation_id=conversation_id, content=content, embedding=embedding)
+                session.add(ctx)
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+        else:
+            # Use direct SQLite for enhanced interface
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("""
+                INSERT INTO contexts (topic, conversation_id, user_input, agent_response, timestamp, response_type)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (topic, conversation_id, user_input, agent_response, datetime.now(), response_type))
+            conn.commit()
+            conn.close()
 
-    def get_context(self, topic: str = None, conversation_id: str = None) -> List[Dict[str, Any]]:
+    def get_context(self, topic: Optional[str] = None, conversation_id: Optional[str] = None) -> List[Dict[str, Any]]:
         session = self.Session()
         try:
             query = session.query(Context)
@@ -71,18 +86,7 @@ class ContextManager:
         conn.commit()
         conn.close()
 
-    def save_context(self, topic: str, conversation_id: str, user_input: str = None, 
-                    agent_response: str = None, response_type: str = "user"):
-        """Save context with proper filtering - NO main model outputs"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            INSERT INTO contexts (topic, conversation_id, user_input, agent_response, timestamp, response_type)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (topic, conversation_id, user_input, agent_response, datetime.now(), response_type))
-        conn.commit()
-        conn.close()
-
-    def get_filtered_context(self, topic: str = None, conversation_id: str = None, 
+    def get_filtered_context(self, topic: Optional[str] = None, conversation_id: Optional[str] = None, 
                            exclude_main_model: bool = True) -> str:
         """Get context formatted for agents, excluding main model outputs"""
         conn = sqlite3.connect(self.db_path)
@@ -114,7 +118,7 @@ class ContextManager:
             context_text += f"Time: {timestamp}\n---\n"
         return context_text
 
-    def get_last_user_query(self, topic: str = None, conversation_id: str = None) -> str:
+    def get_last_user_query(self, topic: Optional[str] = None, conversation_id: Optional[str] = None) -> str:
         conn = sqlite3.connect(self.db_path)
         query = "SELECT user_input FROM contexts WHERE response_type = 'user'"
         params = []

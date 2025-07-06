@@ -1,6 +1,11 @@
-fastapi
-requests
-uvicorn
-pydantic
+fastapi>=0.68.0
+requests>=2.26.0
+uvicorn>=0.15.0
+pydantic>=1.8.0
 httpx
 pyyaml
+python-dotenv>=0.19.0
+SQLAlchemy>=1.4.0
+pytest>=6.2.5
+black>=21.9b0
+flake8>=3.9.0

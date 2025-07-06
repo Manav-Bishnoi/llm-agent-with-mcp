@@ -3,15 +3,27 @@ from agent_router import run_agent_with_error_handling, normalize_agent_call
 from response_utils import parse_and_validate_response
 from llm_utils import query_ollama
 import uuid
+from typing import Optional, Dict, Any
 
 class EnhancedPipeline:
     def __init__(self):
         self.context_manager = ContextManager()
-        self.mcp_servers = {}
-        self.current_conversation_id = None
-        self.current_topic = None
+        self.mcp_servers: Dict[str, Any] = {}
+        self.current_conversation_id: Optional[str] = None
+        self.current_topic: Optional[str] = None
 
-    async def run_enhanced_pipeline(self, user_query: str, conversation_id: str = None):
+    async def add_mcp_server(self, name: str, url: str):
+        """Add MCP server to the pipeline"""
+        try:
+            from mcp_client import MCPClient
+            client = MCPClient(url)
+            await client.connect()
+            self.mcp_servers[name] = client
+            return {"success": True, "message": f"MCP server {name} added successfully"}
+        except Exception as e:
+            return {"success": False, "error": f"Failed to add MCP server {name}: {str(e)}"}
+
+    async def run_enhanced_pipeline(self, user_query: str, conversation_id: Optional[str] = None):
         # Generate conversation ID if not provided
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
