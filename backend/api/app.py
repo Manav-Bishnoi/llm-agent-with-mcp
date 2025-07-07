@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 import importlib
 import requests
-from main import main as main_func
+from backend.main import main as main_func
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 from backend.core.context_manager import ContextManager

@@ -1,5 +1,5 @@
 import requests
-from context_manager import ContextManager
+from backend.core.context_manager import ContextManager
 
 def query_ollama(prompt, model="gemma3:4b"):
     response = requests.post(

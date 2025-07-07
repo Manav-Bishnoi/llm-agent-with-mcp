@@ -1,5 +1,5 @@
 import requests  # Used for HTTP requests to Ollama and as agent API client
-from context_manager import ContextManager
+from backend.core.context_manager import ContextManager
 
 # Query Ollama LLM with a prompt and model
 # Returns the generated response as a string
