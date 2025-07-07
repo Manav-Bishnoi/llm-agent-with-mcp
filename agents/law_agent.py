@@ -61,3 +61,6 @@ def run_command_with_context(command, params, context_list=None):
 
 def run_command(command, params):
     return run_command_with_context(command, params, [])
+
+def run(input_text, context=None):
+    return {"response": f"Law agent received: {input_text}", "context": context}

@@ -6,6 +6,9 @@ import requests  # Used for making HTTP requests to remote agents
 import logging
 from backend.core.context_manager import ContextManager
 import traceback
+from langchain.chains import ConversationChain
+from langchain_community.llms.ollama import Ollama
+from starlette.concurrency import run_in_threadpool
 
 # Create FastAPI router for agent endpoints
 router = APIRouter()
@@ -206,3 +209,52 @@ async def run_agent_api(agent: str, request: Request):
     except Exception as e:
         logger.error(f"Request processing error: {e}")
         raise HTTPException(status_code=400, detail=f"Request processing error: {e}")
+
+# Helper to get or create memory for a user/session
+context_manager = ContextManager()
+
+def get_conversation_chain(user_id, agent_name, model_name="llama3.1:8b"):
+    llm = Ollama(model=model_name)
+    memory = context_manager.get_memory(f"{user_id}:{agent_name}")
+    return ConversationChain(llm=llm, memory=memory)
+
+@router.post("/agent/{agent_name}/")
+async def dynamic_agent_endpoint(agent_name: str, request: Request):
+    print(f"[DEBUG] Entered dynamic_agent_endpoint for {agent_name}", flush=True)
+    data = await request.json()
+    user_id = data.get("user_id")
+    input_text = data.get("input")
+    command = data.get("command")
+    context = data.get("context")
+    params = data.copy()
+    params.pop("user_id", None)
+    params.pop("input", None)
+    params.pop("command", None)
+    params.pop("context", None)
+    print("checkpoint agent router", flush=True)
+    if not user_id or not command:
+        print("user_id and command are required")
+        raise HTTPException(status_code=400, detail="user_id and command are required")
+    try:
+        agent_module = importlib.import_module(f"agents.{agent_name}_agent")
+    except ModuleNotFoundError:
+        print(f"[DEBUG] Agent module not found: {agent_name}_agent", flush=True)
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    # If the agent supports a run_with_context function, use it
+    if hasattr(agent_module, "run_with_context"):
+        print(f"[DEBUG] Calling run_with_context for {agent_name}", flush=True)
+        response = await run_in_threadpool(agent_module.run_with_context, command, params, context)
+    elif hasattr(agent_module, "run_command_with_context"):
+        print(f"[DEBUG] Calling run_command_with_context for {agent_name}", flush=True)
+        response = await run_in_threadpool(agent_module.run_command_with_context, command, params, context)
+    elif hasattr(agent_module, "run_command"):
+        print(f"[DEBUG] Calling run_command for {agent_name}", flush=True)
+        response = await run_in_threadpool(agent_module.run_command, command, params)
+    elif hasattr(agent_module, "run"):
+        print(f"[DEBUG] Calling run for {agent_name}", flush=True)
+        response = await run_in_threadpool(agent_module.run, input_text, context)
+    else:
+        print(f"[DEBUG] No valid run method found for agent '{agent_name}'", flush=True)
+        raise HTTPException(status_code=500, detail=f"No valid run method found for agent '{agent_name}'")
+    print(f"[DEBUG] About to return from dynamic_agent_endpoint: {{'response': {response}}}", flush=True)
+    return {"response": response}

@@ -33,12 +33,14 @@ Please provide a helpful, general-purpose response considering the conversation 
     return response.json()["response"]
 
 def answer(query, context_list=None):
+    print("[DEBUG] Entered general_agent.answer", flush=True)
     if context_list is None:
         context_list = []
     cm = ContextManager()
     context_str = cm.format_context_for_agent(context_list)
     prompt_str = f"You are a helpful general-purpose assistant.\n\n{context_str}\nUser Query: {query}\nPlease provide a helpful, relevant answer."
     output = query_ollama(prompt_str, model="gemma3:4b")
+    print("[DEBUG] Finished general_agent.answer", flush=True)
     return {
         "success": True,
         "data": output,
@@ -60,4 +62,7 @@ def run_command_with_context(command, params, context_list=None):
         }
 
 def run_command(command, params):
-    return run_command_with_context(command, params, []) 
+    return run_command_with_context(command, params, [])
+
+def run(input_text, context=None):
+    return {"response": f"General agent received: {input_text}", "context": context} 

@@ -22,6 +22,7 @@ from backend.config.mcp_config import MCPConfig
 from backend.utils.mcp_client import MCPClient
 import uuid
 import json
+from backend.api import agent_router
 
 # Create FastAPI app
 app = FastAPI()
@@ -264,3 +265,14 @@ async def run_agent_tool(agent: str, request: dict = Body(...)):
     except Exception as e:
         logger.error(f"Request processing error: {e}")
         return {"success": False, "error": f"Request processing error: {str(e)}"}
+
+@app.post("/chat/")
+async def chat_endpoint(request: Request):
+    data = await request.json()
+    agent_name = data["agent_name"]
+    user_id = data["user_id"]
+    user_input = data["input"]
+    response = main_func(agent_name, user_id, user_input)
+    return {"response": response}
+
+app.include_router(agent_router.router)

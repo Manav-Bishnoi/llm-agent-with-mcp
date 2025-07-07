@@ -64,6 +64,7 @@ function ChatApp() {
         
         try {
             const requestBody = { query: text };
+            setStatus('responding...');
             
             // Add checkpoint 2
             // addMessage('📤 CHECKPOINT 2: Request body prepared', 'agent');

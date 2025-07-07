@@ -8,6 +8,8 @@ import json  # For pretty-printing output
 import requests  # For making HTTP API calls to agents
 from backend.core.context_manager import ContextManager
 import uuid
+from backend.core.api_caller import call_agent_api
+# from backend.core.enhanced_pipeline import get_llm_response
 
 # Get user query from input (for CLI mode)
 def get_user_query():
@@ -61,13 +63,12 @@ def run_agent_full(user_query, agent=None, api_url="http://localhost:8000"):
         return f"Error: {e}"
 
 # CLI main loop for testing and debugging
-def main(user_query=None, conversation_id=None, topic="general"):
+def main(user_query, conversation_id=None, topic="general"):
     registry = load_tool_registry()
     if conversation_id is None:
-        conversation_id = str(uuid.uuid4())
+        conversation_id = "1"
     cm = ContextManager()
-    if user_query is None:
-        user_query = get_user_query()
+
     # Save user query to context
     cm.save_context(topic=topic, conversation_id=conversation_id, user_input=user_query, response_type="user")
     prompt = build_prompt_from_registry(registry, user_query)
@@ -76,15 +77,34 @@ def main(user_query=None, conversation_id=None, topic="general"):
     if not parsed:
         return {'error': 'Invalid response format from main llm. Please try again.'}
     normalized = normalize_agent_call(parsed, registry)
-    try:
-        # Call agent directly instead of through API to avoid circular calls
-        result = run_agent_directly(normalized)
-        # Save agent response to context
-        if result and result.get('success'):
-            cm.save_context(topic=topic, conversation_id=conversation_id, agent_response=json.dumps(result.get('data', str(result))), response_type="agent")
-        return result
-    except Exception as e:
-        return {'error': str(e)}
+    # Fill missing parameters if needed (simple example: fill with empty string)
+    agent = normalized["agent"]
+    # Strip '_agent' suffix if present for API endpoint
+    if agent.endswith("_agent"):
+        agent = agent[:-6]
+    command = normalized["command"]
+    params = normalized["params"]
+    for param in registry[agent + '_agent']["functions"][command]["params"]:
+        if param not in params:
+            params[param] = ""
+    # Get context for this conversation
+    context = cm.format_context_for_agent(cm.get_filtered_context(topic=topic, conversation_id=conversation_id))
+    print("context: ", context)
+    # Call the agent via API, passing context
+    result = call_agent_api(agent, command, params, context=context)
+    # Save agent response to context
+    cm.save_context(topic=topic, conversation_id=conversation_id, agent_response=json.dumps(result), response_type="agent")
+
+    # Extract the actual response string for display
+    if isinstance(result, dict) and "response" in result:
+        agent_response = result["response"]
+        # If agent_response is a dict with a 'response' key, extract it
+        if isinstance(agent_response, dict) and "response" in agent_response:
+            agent_response = agent_response["response"]
+        print(agent_response)
+    else:
+        print(result)
+    return result
 
 def run_agent_directly(normalized):
     """Run agent directly without going through API"""
@@ -118,9 +138,12 @@ if __name__ == "__main__":
     topic = "general"
     while True:
         try:
-            user_query = get_user_query()
+            user_query = input("Enter your query: ")
+            if user_query.lower() == "/bye":
+                print("Exiting...")
+                break
             result = main(user_query, conversation_id=conversation_id, topic=topic)
-            print_agent_output(result)
+            print(result)
         except KeyboardInterrupt:
             print("\nExiting...")
             break
